@@ -1,0 +1,442 @@
+import React, { useState, useRef, useEffect } from 'react';
+import QRCodeStyling from 'qr-code-styling';
+import QrScanner from 'qr-scanner';
+
+const qrCodeInstance = new QRCodeStyling({
+  width: 280,
+  height: 280,
+  type: 'canvas',
+  data: 'https://example.com',
+  dotsOptions: { color: '#000000', type: 'rounded' },
+  backgroundOptions: { color: '#ffffff' },
+  cornersSquareOptions: { type: 'extra-rounded', color: '#000000' },
+  cornersDotOptions: { type: 'dot', color: '#000000' }
+});
+
+export default function QrCodeGenerator() {
+  const [activeTab, setActiveTab] = useState('generate');
+
+  const [qrType, setQrType] = useState('url');
+  const [qrValue, setQrValue] = useState('https://example.com');
+  const [text, setText] = useState('https://example.com');
+  const [phone, setPhone] = useState('');
+  const [wifiSsid, setWifiSsid] = useState('');
+  const [wifiPassword, setWifiPassword] = useState('');
+  const [wifiEncryption, setWifiEncryption] = useState('WPA');
+  const [vcardName, setVcardName] = useState('');
+  const [vcardOrg, setVcardOrg] = useState('');
+  const [vcardPhone, setVcardPhone] = useState('');
+
+  const [fgColor, setFgColor] = useState('#000000');
+  const [bgColor, setBgColor] = useState('#FFFFFF');
+  const [dotType, setDotType] = useState('rounded');
+  const [cornerType, setCornerType] = useState('extra-rounded');
+  const [cornerDotType, setCornerDotType] = useState('dot');
+  
+  const [originalLogo, setOriginalLogo] = useState(null);
+  const [logo, setLogo] = useState(null);
+  const [logoShape, setLogoShape] = useState('square');
+  const [hideBgDots, setHideBgDots] = useState(true);
+
+  const qrRef = useRef(null);
+
+  useEffect(() => {
+    if (qrRef.current) {
+      qrRef.current.innerHTML = '';
+      qrCodeInstance.append(qrRef.current);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (qrType === 'url') setQrValue(text || ' ');
+    else if (qrType === 'phone') setQrValue(`tel:${phone}`);
+    else if (qrType === 'wifi') setQrValue(`WIFI:T:${wifiEncryption};S:${wifiSsid};P:${wifiPassword};;`);
+    else if (qrType === 'vcard') setQrValue(`BEGIN:VCARD\nVERSION:3.0\nFN:${vcardName}\nORG:${vcardOrg}\nTEL:${vcardPhone}\nEND:VCARD`);
+  }, [qrType, text, phone, wifiSsid, wifiPassword, wifiEncryption, vcardName, vcardOrg, vcardPhone]);
+
+  // ระบบปรับแต่งการเจาะช่องว่างอัตโนมัติตามรูปทรงที่เลือก
+  useEffect(() => {
+    if (logoShape === 'circle' || logoShape === 'rounded') {
+      setHideBgDots(false); // ปิดเจาะช่องว่างอัตโนมัติ เพื่อให้เห็นทรงกลมชัดๆ
+    } else {
+      setHideBgDots(true);
+    }
+  }, [logoShape]);
+
+  // ระบบตัดแต่งภาพโลโก้และเสริมขอบ
+  useEffect(() => {
+    if (!originalLogo) {
+      setLogo(null);
+      return;
+    }
+    
+    if (logoShape === 'square') {
+      setLogo(originalLogo);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = Math.min(img.width, img.height);
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+
+      const sx = (img.width - size) / 2;
+      const sy = (img.height - size) / 2;
+
+      ctx.clearRect(0, 0, size, size);
+      ctx.beginPath();
+      
+      if (logoShape === 'circle') {
+        ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      } else if (logoShape === 'rounded') {
+        const radius = size * 0.2;
+        ctx.moveTo(radius, 0);
+        ctx.lineTo(size - radius, 0);
+        ctx.quadraticCurveTo(size, 0, size, radius);
+        ctx.lineTo(size, size - radius);
+        ctx.quadraticCurveTo(size, size, size - radius, size);
+        ctx.lineTo(radius, size);
+        ctx.quadraticCurveTo(0, size, 0, size - radius);
+        ctx.lineTo(0, radius);
+        ctx.quadraticCurveTo(0, 0, radius, 0);
+      }
+      
+      ctx.closePath();
+      
+      // เทพื้นหลังสีขาวลงไปก่อนวาดรูป เพื่อให้โลโก้ทึบแสงและโดดเด่นจากคิวอาร์โค้ด
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+      
+      // วาดรูปทับลงไป
+      ctx.clip();
+      ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+      
+      setLogo(canvas.toDataURL('image/png'));
+    };
+    img.src = originalLogo;
+  }, [originalLogo, logoShape]);
+
+  useEffect(() => {
+    qrCodeInstance.update({
+      data: qrValue,
+      dotsOptions: { color: fgColor, type: dotType },
+      backgroundOptions: { color: bgColor },
+      cornersSquareOptions: { type: cornerType, color: fgColor },
+      cornersDotOptions: { type: cornerDotType, color: fgColor },
+      image: logo,
+      imageOptions: {
+        crossOrigin: 'anonymous',
+        margin: hideBgDots ? 8 : 0, 
+        imageSize: 0.35,
+        hideBackgroundDots: hideBgDots 
+      }
+    });
+  }, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots]);
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setOriginalLogo(event.target.result);
+        setLogoShape('circle'); 
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleDownload = (format) => {
+    qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
+  };
+
+  const [history, setHistory] = useState(() => {
+    const saved = localStorage.getItem('qrHistory');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('qrHistory', JSON.stringify(history));
+  }, [history]);
+
+  const addToHistory = () => {
+    const newItem = { id: Date.now(), type: qrType, data: qrValue, date: new Date().toLocaleString('th-TH') };
+    setHistory([newItem, ...history]);
+    alert('บันทึกข้อมูลลงประวัติเรียบร้อยแล้ว!');
+  };
+
+  const deleteHistory = (id) => {
+    if (window.confirm('ต้องการลบประวัตินี้ใช่หรือไม่?')) setHistory(history.filter(item => item.id !== id));
+  };
+
+  // ==========================================
+  // ส่วนสแกน QR Code 
+  // ==========================================
+  const [scanResult, setScanResult] = useState('');
+  const [scanError, setScanError] = useState('');
+  const videoRef = useRef(null);
+  const scannerRef = useRef(null);
+
+  useEffect(() => {
+    if (activeTab === 'scan' && !scanResult) {
+      const timer = setTimeout(() => {
+        if (videoRef.current) {
+          scannerRef.current = new QrScanner(
+            videoRef.current,
+            (result) => { setScanResult(result.data); if (scannerRef.current) scannerRef.current.stop(); },
+            { highlightScanRegion: true, highlightCodeOutline: true, returnDetailedScanResult: true }
+          );
+          scannerRef.current.start().catch((err) => console.warn('ไม่สามารถเข้าถึงกล้องได้:', err));
+        }
+      }, 200);
+      return () => clearTimeout(timer);
+    }
+    return () => { if (scannerRef.current) { scannerRef.current.stop(); scannerRef.current.destroy(); } };
+  }, [activeTab, scanResult]);
+
+  const scanImageFile = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanError('กำลังวิเคราะห์และปรับแต่งรูปภาพ...');
+    const imageUrl = URL.createObjectURL(file);
+    const tryScan = async (source) => { return await QrScanner.scanImage(source, { returnDetailedScanResult: true }); };
+
+    try {
+      const result = await tryScan(imageUrl);
+      setScanResult(result.data);
+      setScanError('');
+    } catch (err1) {
+      const img = new Image();
+      img.onload = async () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const scale = 2;
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        ctx.filter = 'grayscale(100%) contrast(200%)';
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        try {
+          const enhancedResult = await tryScan(canvas);
+          setScanResult(enhancedResult.data);
+          setScanError('');
+        } catch (err2) {
+          setScanError('ไม่สามารถอ่านข้อมูลได้: ภาพอาจจะเบลอเกินไป ลองตัดขอบภาพให้เหลือเฉพาะ QR Code แล้วลองใหม่นะครับ');
+        }
+        URL.revokeObjectURL(imageUrl);
+      };
+      img.src = imageUrl;
+    }
+  };
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(scanResult);
+    alert('คัดลอกข้อความแล้ว!');
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center py-10 px-6 font-sans">
+      <div className="max-w-5xl w-full mb-8 text-center">
+        <h1 className="text-4xl font-bold text-white mb-6">QR Code Studio</h1>
+        <div className="inline-flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+          <button onClick={() => setActiveTab('generate')} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all ${activeTab === 'generate' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+            สร้าง QR Code
+          </button>
+          <button onClick={() => { setActiveTab('scan'); setScanResult(''); setScanError(''); }} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all ${activeTab === 'scan' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+            สแกน QR Code
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-5xl w-full border border-slate-700 min-h-[500px]">
+        
+        {activeTab === 'generate' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            <div className="space-y-6">
+              
+              <div className="flex flex-wrap gap-2 mb-4">
+                {[ { id: 'url', label: 'ลิงก์ / ข้อความ' }, { id: 'phone', label: 'เบอร์โทร' }, { id: 'wifi', label: 'WiFi' }, { id: 'vcard', label: 'นามบัตร' } ].map((type) => (
+                  <button key={type.id} onClick={() => setQrType(type.id)} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${qrType === type.id ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+                    {type.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="bg-slate-750 p-4 rounded-xl border border-slate-600 space-y-4">
+                {qrType === 'url' && <input type="text" value={text} onChange={(e) => setText(e.target.value)} className="w-full px-4 py-3 bg-slate-700 text-white rounded-lg outline-none" placeholder="https://..." />}
+                {qrType === 'phone' && <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full px-4 py-3 bg-slate-700 text-white rounded-lg outline-none" placeholder="เบอร์โทรศัพท์" />}
+                {qrType === 'wifi' && (
+                  <div className="space-y-4">
+                    <input type="text" value={wifiSsid} onChange={(e) => setWifiSsid(e.target.value)} className="w-full px-4 py-3 bg-slate-700 text-white rounded-lg outline-none" placeholder="ชื่อ WiFi" />
+                    <input type="password" value={wifiPassword} onChange={(e) => setWifiPassword(e.target.value)} className="w-full px-4 py-3 bg-slate-700 text-white rounded-lg outline-none" placeholder="รหัสผ่าน" />
+                  </div>
+                )}
+                {qrType === 'vcard' && (
+                  <div className="space-y-4">
+                    <input type="text" value={vcardName} onChange={(e) => setVcardName(e.target.value)} className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg outline-none" placeholder="ชื่อ-นามสกุล" />
+                    <input type="text" value={vcardOrg} onChange={(e) => setVcardOrg(e.target.value)} className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg outline-none" placeholder="องค์กร" />
+                    <input type="tel" value={vcardPhone} onChange={(e) => setVcardPhone(e.target.value)} className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg outline-none" placeholder="เบอร์โทรศัพท์" />
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">สีคิวอาร์โค้ด</label>
+                  <div className="flex gap-2">
+                    <input type="color" value={fgColor} onChange={(e) => setFgColor(e.target.value)} className="h-11 w-16 rounded cursor-pointer bg-slate-700 border-0 p-1" />
+                    <input type="text" value={fgColor} onChange={(e) => setFgColor(e.target.value)} className="w-full px-3 py-2 bg-slate-700 text-white rounded-lg outline-none border border-slate-600 uppercase" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">สีพื้นหลัง</label>
+                  <div className="flex gap-2">
+                    <input type="color" value={bgColor} onChange={(e) => setBgColor(e.target.value)} className="h-11 w-16 rounded cursor-pointer bg-slate-700 border-0 p-1" />
+                    <input type="text" value={bgColor} onChange={(e) => setBgColor(e.target.value)} className="w-full px-3 py-2 bg-slate-700 text-white rounded-lg outline-none border border-slate-600 uppercase" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-750 p-4 rounded-xl border border-slate-600 space-y-4">
+                <h4 className="text-sm font-semibold text-white">🎨 ปรับแต่งลวดลาย QR Code</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">ลวดลายจุด</label>
+                    <select value={dotType} onChange={(e) => setDotType(e.target.value)} className="w-full bg-slate-700 text-white text-sm px-3 py-2 rounded-lg border border-slate-600 outline-none">
+                      <option value="rounded">โค้งมน (Rounded)</option>
+                      <option value="dots">จุดกลม (Dots)</option>
+                      <option value="classy">คลาสสิก (Classy)</option>
+                      <option value="square">สี่เหลี่ยม</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">กรอบมุมเล็ง</label>
+                    <select value={cornerType} onChange={(e) => setCornerType(e.target.value)} className="w-full bg-slate-700 text-white text-sm px-3 py-2 rounded-lg border border-slate-600 outline-none">
+                      <option value="extra-rounded">มุมมนพิเศษ</option>
+                      <option value="dot">มุมทรงกลม</option>
+                      <option value="square">มุมสี่เหลี่ยม</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">จุดกึ่งกลางมุม</label>
+                    <select value={cornerDotType} onChange={(e) => setCornerDotType(e.target.value)} className="w-full bg-slate-700 text-white text-sm px-3 py-2 rounded-lg border border-slate-600 outline-none">
+                      <option value="dot">จุดกลม</option>
+                      <option value="square">จุดสี่เหลี่ยม</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* === เครื่องมือจัดการโลโก้ === */}
+              <div className="bg-slate-750 p-4 rounded-xl border border-slate-600">
+                <h4 className="text-sm font-semibold text-white mb-3">🖼️ อัปโหลดและตั้งค่าโลโก้</h4>
+                <input type="file" accept="image/*" onChange={handleLogoUpload} className="w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:bg-blue-600 file:text-white file:border-0 hover:file:bg-blue-500 cursor-pointer" />
+                
+                {originalLogo && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-600">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">รูปทรงโลโก้</label>
+                      <select value={logoShape} onChange={(e) => setLogoShape(e.target.value)} className="w-full bg-slate-700 text-white text-sm px-3 py-2 rounded-lg border border-slate-600 outline-none focus:border-blue-500">
+                        <option value="circle">วงกลม (Circle)</option>
+                        <option value="rounded">ขอบมน (Rounded)</option>
+                        <option value="square">สี่เหลี่ยม (Original)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">การจัดวางหลังโลโก้</label>
+                      <label className="flex items-center space-x-2 mt-2 cursor-pointer group">
+                        <div className="relative flex items-center">
+                          <input type="checkbox" checked={hideBgDots} onChange={(e) => setHideBgDots(e.target.checked)} className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border border-slate-500 bg-slate-700 checked:border-blue-500 checked:bg-blue-600 transition-all" />
+                          <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100">
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" stroke="currentColor" strokeWidth="1"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"></path></svg>
+                          </div>
+                        </div>
+                        <span className="text-sm text-slate-300 group-hover:text-white transition-colors">เจาะช่องว่าง (ซ่อนลาย QR)</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center justify-center bg-slate-900 rounded-xl p-8 border border-slate-700">
+              <div className="p-4 rounded-xl shadow-lg mb-8" style={{ backgroundColor: bgColor }}>
+                <div ref={qrRef} className="flex items-center justify-center"></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 w-full mb-3">
+                <button onClick={() => handleDownload('png')} className="py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">🖼️ โหลด PNG</button>
+                <button onClick={() => handleDownload('svg')} className="py-3 bg-purple-600 text-white font-bold rounded-lg hover:bg-purple-500 transition-colors">✨ โหลด SVG</button>
+              </div>
+              <button onClick={addToHistory} className="py-3 bg-slate-750 text-slate-300 font-bold rounded-lg hover:bg-slate-700 hover:text-white w-full border border-slate-600 transition-colors">💾 บันทึกประวัติ</button>
+            </div>
+          </div>
+        )}
+
+        {/* แดชบอร์ดประวัติ และ หน้าสแกน QR Code คงเดิม */}
+        {activeTab === 'generate' && history.length > 0 && (
+          <div className="mt-12 pt-8 border-t border-slate-700">
+            <h3 className="text-xl font-bold text-white mb-6">📋 ประวัติการสร้าง</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm text-slate-300">
+                <thead className="bg-slate-700/50 text-slate-400">
+                  <tr><th className="px-4 py-3 w-24">ประเภท</th><th className="px-4 py-3">ข้อมูล</th><th className="px-4 py-3 w-48">วันที่</th><th className="px-4 py-3 w-24 text-center">ลบ</th></tr>
+                </thead>
+                <tbody>
+                  {history.map((item) => (
+                    <tr key={item.id} className="border-b border-slate-700/50 hover:bg-slate-750">
+                      <td className="px-4 py-4 text-blue-400 uppercase font-semibold">{item.type}</td>
+                      <td className="px-4 py-4 truncate max-w-xs">{item.data}</td>
+                      <td className="px-4 py-4">{item.date}</td>
+                      <td className="px-4 py-4 text-center"><button onClick={() => deleteHistory(item.id)} className="text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg">ลบ</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'scan' && (
+          <div className="flex flex-col items-center justify-center space-y-6">
+            {!scanResult ? (
+              <div className="w-full max-w-lg space-y-6">
+                <div className="bg-black rounded-xl overflow-hidden shadow-lg border-2 border-slate-600 relative h-[350px] w-full flex items-center justify-center">
+                  <video ref={videoRef} className="w-full h-full object-cover" playsInline muted></video>
+                  <div className="absolute inset-0 pointer-events-none flex items-center justify-center"><div className="w-56 h-56 border-2 border-blue-500 rounded-lg bg-black/10"></div></div>
+                </div>
+                <div className="bg-slate-750 p-6 rounded-xl border border-slate-600 text-center">
+                  <p className="text-slate-300 mb-4 font-semibold">หรืออัปโหลดรูปภาพเพื่อสแกน</p>
+                  <input type="file" accept="image/*" onChange={scanImageFile} className="w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:bg-blue-600 file:text-white file:border-0 hover:file:bg-blue-500 cursor-pointer" />
+                  {scanError && <div className="mt-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-400 text-sm">{scanError}</div>}
+                </div>
+              </div>
+            ) : (
+              <div className="w-full max-w-2xl bg-slate-900 border border-green-500 p-8 rounded-xl text-center space-y-6">
+                <h3 className="text-2xl font-bold text-white">สแกนสำเร็จ!</h3>
+                <div className="bg-slate-800 p-4 rounded-lg break-all text-slate-300 font-mono text-lg text-left">{scanResult}</div>
+                <div className="flex flex-wrap gap-4 justify-center">
+                  {/* เช็กเงื่อนไข: ถ้าเป็นลิงก์เว็บ ให้แสดงปุ่ม "เปิดลิงก์ทันที" */}
+                {(scanResult.startsWith('http://') || scanResult.startsWith('https://')) && (
+                <button 
+               onClick={() => window.open(scanResult, '_blank')} 
+             className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500 transition-colors shadow-lg shadow-green-900/50"
+                >
+                    🌐 เปิดลิงก์ทันที
+                </button>
+              )}
+                <button onClick={copyToClipboard} className="px-6 py-3 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-600 transition-colors">
+                คัดลอกข้อความ
+                </button>
+                <button onClick={() => { setScanResult(''); setScanError(''); }} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
+                สแกนรูปอื่น
+                </button>
+              </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
