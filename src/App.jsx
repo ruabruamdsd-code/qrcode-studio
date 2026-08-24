@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QRCodeStyling from 'qr-code-styling';
 import QrScanner from 'qr-scanner';
+import { generateQRThemeWithAI } from './aiColorHelper'; 
+import jsQR from 'jsqr'; // ✨ ดึง jsQR เข้ามาใช้งาน
 
 const qrCodeInstance = new QRCodeStyling({
   width: 280,
@@ -37,6 +39,10 @@ export default function QrCodeGenerator() {
   const [logo, setLogo] = useState(null);
   const [logoShape, setLogoShape] = useState('square');
   const [hideBgDots, setHideBgDots] = useState(true);
+
+  // State สำหรับควบคุมระบบ AI
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   const qrRef = useRef(null);
 
@@ -136,6 +142,23 @@ export default function QrCodeGenerator() {
     });
   }, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots]);
 
+  // ฟังก์ชันสั่งงาน AI ให้เลือกชุดสี
+  const handleAIThemeClick = async () => {
+    if (!aiPrompt) {
+      alert('กรุณากรอกสไตล์ที่ต้องการก่อนครับ เช่น "โทนสีมินิมอล อบอุ่น สำหรับร้านกาแฟ"');
+      return;
+    }
+
+    setAiLoading(true);
+    const theme = await generateQRThemeWithAI(aiPrompt);
+    if (theme) {
+      if (theme.fgColor) setFgColor(theme.fgColor);
+      if (theme.bgColor) setBgColor(theme.bgColor);
+      alert('✨ AI ออกแบบชุดสีให้เรียบร้อยแล้ว!');
+    }
+    setAiLoading(false);
+  };
+
   const handleLogoUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -172,10 +195,11 @@ export default function QrCodeGenerator() {
   };
 
   // ==========================================
-  // ส่วนสแกน QR Code 
+  // ส่วนสแกน QR Code (เพิ่มระบบ Drag and Drop แล้ว!)
   // ==========================================
   const [scanResult, setScanResult] = useState('');
   const [scanError, setScanError] = useState('');
+  const [isDragging, setIsDragging] = useState(false); // ✨ State ควบคุมการ Drag
   const videoRef = useRef(null);
   const scannerRef = useRef(null);
 
@@ -196,37 +220,64 @@ export default function QrCodeGenerator() {
     return () => { if (scannerRef.current) { scannerRef.current.stop(); scannerRef.current.destroy(); } };
   }, [activeTab, scanResult]);
 
-  const scanImageFile = async (e) => {
-    const file = e.target.files[0];
+  // ✨ ฟังก์ชันจัดการข้อมูลไฟล์รูปภาพ
+  const processImageFile = async (file) => {
     if (!file) return;
-    setScanError('กำลังวิเคราะห์และปรับแต่งรูปภาพ...');
-    const imageUrl = URL.createObjectURL(file);
-    const tryScan = async (source) => { return await QrScanner.scanImage(source, { returnDetailedScanResult: true }); };
+    
+    setScanError('กำลังวิเคราะห์รูปภาพอย่างละเอียด...');
+    
+    const reader = new FileReader();
 
-    try {
-      const result = await tryScan(imageUrl);
-      setScanResult(result.data);
-      setScanError('');
-    } catch (err1) {
+    reader.onload = (event) => {
       const img = new Image();
-      img.onload = async () => {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const scale = 2;
-        canvas.width = img.width * scale;
-        canvas.height = img.height * scale;
-        ctx.filter = 'grayscale(100%) contrast(200%)';
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        try {
-          const enhancedResult = await tryScan(canvas);
-          setScanResult(enhancedResult.data);
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d");
+        
+        canvas.width = img.width;
+        canvas.height = img.height;
+        context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert", 
+        });
+
+        if (code) {
+          setScanResult(code.data);
           setScanError('');
-        } catch (err2) {
-          setScanError('ไม่สามารถอ่านข้อมูลได้: ภาพอาจจะเบลอเกินไป ลองตัดขอบภาพให้เหลือเฉพาะ QR Code แล้วลองใหม่นะครับ');
+        } else {
+          setScanError('❌ สแกนไม่พบข้อมูล QR Code ภาพอาจเบลอเกินไป ลองใช้รูปอื่นดูนะครับ');
         }
-        URL.revokeObjectURL(imageUrl);
       };
-      img.src = imageUrl;
+      img.src = event.target.result;
+    };
+    
+    reader.readAsDataURL(file);
+  };
+
+  // ดึงฟังก์ชันมาครอบเพื่อใช้รับ Event จาก input file
+  const scanImageFile = (e) => {
+    processImageFile(e.target.files[0]);
+  };
+
+  // ✨ ฟังก์ชันจัดการ Event การลากไฟล์
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processImageFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -279,6 +330,29 @@ export default function QrCodeGenerator() {
                     <input type="tel" value={vcardPhone} onChange={(e) => setVcardPhone(e.target.value)} className="w-full px-4 py-2 bg-slate-700 text-white rounded-lg outline-none" placeholder="เบอร์โทรศัพท์" />
                   </div>
                 )}
+              </div>
+
+              {/* === ส่วนเพิ่มใหม่: AI ช่วยออกแบบธีมสี === */}
+              <div className="bg-slate-700/40 p-4 rounded-xl border border-slate-600 space-y-3">
+                <label className="block text-sm font-semibold text-white">
+                  ✨ AI ช่วยออกแบบธีมสี QR Code
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={aiPrompt}
+                    onChange={(e) => setAiPrompt(e.target.value)}
+                    placeholder="เช่น โทนสีมินิมอล ญี่ปุ่นๆ สำหรับร้านกาแฟ"
+                    className="w-full px-3 py-2 bg-slate-700 text-white text-sm rounded-lg outline-none border border-slate-600"
+                  />
+                  <button
+                    onClick={handleAIThemeClick}
+                    disabled={aiLoading}
+                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-sm rounded-lg transition-colors whitespace-nowrap disabled:opacity-50"
+                  >
+                    {aiLoading ? 'กำลังคิด...' : 'ให้ AI จัดสีให้'}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -373,7 +447,7 @@ export default function QrCodeGenerator() {
           </div>
         )}
 
-        {/* แดชบอร์ดประวัติ และ หน้าสแกน QR Code คงเดิม */}
+        {/* แดชบอร์ดประวัติ และ หน้าสแกน QR Code */}
         {activeTab === 'generate' && history.length > 0 && (
           <div className="mt-12 pt-8 border-t border-slate-700">
             <h3 className="text-xl font-bold text-white mb-6">📋 ประวัติการสร้าง</h3>
@@ -397,6 +471,7 @@ export default function QrCodeGenerator() {
           </div>
         )}
 
+        {/* ✨ ปรับปรุง UI ส่วนสแกนให้รองรับการลากไฟล์ */}
         {activeTab === 'scan' && (
           <div className="flex flex-col items-center justify-center space-y-6">
             {!scanResult ? (
@@ -405,33 +480,51 @@ export default function QrCodeGenerator() {
                   <video ref={videoRef} className="w-full h-full object-cover" playsInline muted></video>
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center"><div className="w-56 h-56 border-2 border-blue-500 rounded-lg bg-black/10"></div></div>
                 </div>
-                <div className="bg-slate-750 p-6 rounded-xl border border-slate-600 text-center">
-                  <p className="text-slate-300 mb-4 font-semibold">หรืออัปโหลดรูปภาพเพื่อสแกน</p>
-                  <input type="file" accept="image/*" onChange={scanImageFile} className="w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:bg-blue-600 file:text-white file:border-0 hover:file:bg-blue-500 cursor-pointer" />
-                  {scanError && <div className="mt-4 p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-400 text-sm">{scanError}</div>}
+                
+                {/* ✨ พื้นที่ลากและวาง (Drag & Drop Zone) */}
+                <div 
+                  className={`p-8 rounded-xl border-2 border-dashed transition-all text-center ${
+                    isDragging ? 'border-blue-500 bg-blue-900/30 shadow-lg shadow-blue-500/20' : 'bg-slate-750 border-slate-600 hover:border-slate-500'
+                  }`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <p className="text-slate-200 mb-2 font-bold text-lg">📸 ลากรูปภาพมาวางที่นี่เพื่อสแกน</p>
+                  <p className="text-slate-400 mb-6 text-sm">หรือกดปุ่มด้านล่างเพื่อเลือกไฟล์</p>
+                  
+                  <label className="cursor-pointer inline-block">
+                    <span className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors shadow-lg">
+                      เปิดเลือกไฟล์รูปภาพ
+                    </span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={scanImageFile} 
+                      className="hidden" 
+                    />
+                  </label>
+                  
+                  {scanError && <div className="mt-6 p-3 bg-red-900/40 border border-red-500/50 rounded-lg text-red-400 text-sm font-medium">{scanError}</div>}
                 </div>
               </div>
             ) : (
-              <div className="w-full max-w-2xl bg-slate-900 border border-green-500 p-8 rounded-xl text-center space-y-6">
-                <h3 className="text-2xl font-bold text-white">สแกนสำเร็จ!</h3>
-                <div className="bg-slate-800 p-4 rounded-lg break-all text-slate-300 font-mono text-lg text-left">{scanResult}</div>
+              <div className="w-full max-w-2xl bg-slate-900 border border-green-500 p-8 rounded-xl text-center space-y-6 shadow-xl shadow-green-900/20">
+                <h3 className="text-2xl font-bold text-white">✅ สแกนสำเร็จ!</h3>
+                <div className="bg-slate-800 p-4 rounded-lg break-all text-slate-300 font-mono text-lg text-left shadow-inner">{scanResult}</div>
                 <div className="flex flex-wrap gap-4 justify-center">
-                  {/* เช็กเงื่อนไข: ถ้าเป็นลิงก์เว็บ ให้แสดงปุ่ม "เปิดลิงก์ทันที" */}
-                {(scanResult.startsWith('http://') || scanResult.startsWith('https://')) && (
-                <button 
-               onClick={() => window.open(scanResult, '_blank')} 
-             className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500 transition-colors shadow-lg shadow-green-900/50"
-                >
-                    🌐 เปิดลิงก์ทันที
-                </button>
-              )}
-                <button onClick={copyToClipboard} className="px-6 py-3 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-600 transition-colors">
-                คัดลอกข้อความ
-                </button>
-                <button onClick={() => { setScanResult(''); setScanError(''); }} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
-                สแกนรูปอื่น
-                </button>
-              </div>
+                  {(scanResult.startsWith('http://') || scanResult.startsWith('https://')) && (
+                    <button onClick={() => window.open(scanResult, '_blank')} className="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500 transition-colors shadow-lg shadow-green-900/50">
+                      🌐 เปิดลิงก์ทันที
+                    </button>
+                  )}
+                  <button onClick={copyToClipboard} className="px-6 py-3 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-600 transition-colors">
+                    คัดลอกข้อความ
+                  </button>
+                  <button onClick={() => { setScanResult(''); setScanError(''); }} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
+                    สแกนรูปอื่น
+                  </button>
+                </div>
               </div>
             )}
           </div>
