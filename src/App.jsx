@@ -2,7 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import QRCodeStyling from 'qr-code-styling';
 import QrScanner from 'qr-scanner';
 import { generateQRThemeWithAI } from './aiColorHelper'; 
-import jsQR from 'jsqr'; // ✨ ดึง jsQR เข้ามาใช้งาน
+import jsQR from 'jsqr'; 
+import { doc, setDoc, onSnapshot } from "firebase/firestore"; // ✨ ดึงคำสั่งฐานข้อมูลมาใช้
+import { db } from './firebase'; // ✨ นำเข้าฐานข้อมูลที่เราสร้างไว้
 
 const qrCodeInstance = new QRCodeStyling({
   width: 280,
@@ -18,6 +20,7 @@ const qrCodeInstance = new QRCodeStyling({
 export default function QrCodeGenerator() {
   const [activeTab, setActiveTab] = useState('generate');
 
+  // ... (State เดิมของหน้า Generate) ...
   const [qrType, setQrType] = useState('url');
   const [qrValue, setQrValue] = useState('https://example.com');
   const [text, setText] = useState('https://example.com');
@@ -40,14 +43,30 @@ export default function QrCodeGenerator() {
   const [logoShape, setLogoShape] = useState('square');
   const [hideBgDots, setHideBgDots] = useState(true);
 
-  // State สำหรับควบคุมระบบ AI
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
 
+  // ✨ State สำหรับระบบเชื่อมต่อมือถือ (Sync Mode)
+  const [syncRoomId, setSyncRoomId] = useState(null);
+  const [isMobileSender, setIsMobileSender] = useState(false);
+  const [desktopSyncQr, setDesktopSyncQr] = useState('');
+
   const qrRef = useRef(null);
+  const syncQrRef = useRef(null); // สำหรับวาด QR ให้มือถือสแกน
+
+  // ตรวจสอบ URL ว่ามีรหัสห้องส่งมาหรือไม่ (ถ้าเปิดจากมือถือ)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const room = params.get('room');
+    if (room) {
+      setSyncRoomId(room);
+      setIsMobileSender(true);
+      setActiveTab('scan'); // บังคับเข้าหน้าสแกนทันที
+    }
+  }, []);
 
   useEffect(() => {
-    if (qrRef.current) {
+    if (qrRef.current && activeTab === 'generate') {
       qrRef.current.innerHTML = '';
       qrCodeInstance.append(qrRef.current);
     }
@@ -60,37 +79,22 @@ export default function QrCodeGenerator() {
     else if (qrType === 'vcard') setQrValue(`BEGIN:VCARD\nVERSION:3.0\nFN:${vcardName}\nORG:${vcardOrg}\nTEL:${vcardPhone}\nEND:VCARD`);
   }, [qrType, text, phone, wifiSsid, wifiPassword, wifiEncryption, vcardName, vcardOrg, vcardPhone]);
 
-  // ระบบปรับแต่งการเจาะช่องว่างอัตโนมัติตามรูปทรงที่เลือก
   useEffect(() => {
-    if (logoShape === 'circle' || logoShape === 'rounded') {
-      setHideBgDots(false); // ปิดเจาะช่องว่างอัตโนมัติ เพื่อให้เห็นทรงกลมชัดๆ
-    } else {
-      setHideBgDots(true);
-    }
+    if (logoShape === 'circle' || logoShape === 'rounded') setHideBgDots(false); 
+    else setHideBgDots(true);
   }, [logoShape]);
 
-  // ระบบตัดแต่งภาพโลโก้และเสริมขอบ
   useEffect(() => {
-    if (!originalLogo) {
-      setLogo(null);
-      return;
-    }
-    
-    if (logoShape === 'square') {
-      setLogo(originalLogo);
-      return;
-    }
+    if (!originalLogo) { setLogo(null); return; }
+    if (logoShape === 'square') { setLogo(originalLogo); return; }
 
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const size = Math.min(img.width, img.height);
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = size; canvas.height = size;
       const ctx = canvas.getContext('2d');
-
-      const sx = (img.width - size) / 2;
-      const sy = (img.height - size) / 2;
+      const sx = (img.width - size) / 2; const sy = (img.height - size) / 2;
 
       ctx.clearRect(0, 0, size, size);
       ctx.beginPath();
@@ -99,27 +103,15 @@ export default function QrCodeGenerator() {
         ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
       } else if (logoShape === 'rounded') {
         const radius = size * 0.2;
-        ctx.moveTo(radius, 0);
-        ctx.lineTo(size - radius, 0);
-        ctx.quadraticCurveTo(size, 0, size, radius);
-        ctx.lineTo(size, size - radius);
-        ctx.quadraticCurveTo(size, size, size - radius, size);
-        ctx.lineTo(radius, size);
-        ctx.quadraticCurveTo(0, size, 0, size - radius);
-        ctx.lineTo(0, radius);
-        ctx.quadraticCurveTo(0, 0, radius, 0);
+        ctx.moveTo(radius, 0); ctx.lineTo(size - radius, 0); ctx.quadraticCurveTo(size, 0, size, radius);
+        ctx.lineTo(size, size - radius); ctx.quadraticCurveTo(size, size, size - radius, size);
+        ctx.lineTo(radius, size); ctx.quadraticCurveTo(0, size, 0, size - radius);
+        ctx.lineTo(0, radius); ctx.quadraticCurveTo(0, 0, radius, 0);
       }
-      
       ctx.closePath();
-      
-      // เทพื้นหลังสีขาวลงไปก่อนวาดรูป เพื่อให้โลโก้ทึบแสงและโดดเด่นจากคิวอาร์โค้ด
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fill();
-      
-      // วาดรูปทับลงไป
+      ctx.fillStyle = '#FFFFFF'; ctx.fill();
       ctx.clip();
       ctx.drawImage(img, sx, sy, size, size, 0, 0, size, size);
-      
       setLogo(canvas.toDataURL('image/png'));
     };
     img.src = originalLogo;
@@ -133,22 +125,12 @@ export default function QrCodeGenerator() {
       cornersSquareOptions: { type: cornerType, color: fgColor },
       cornersDotOptions: { type: cornerDotType, color: fgColor },
       image: logo,
-      imageOptions: {
-        crossOrigin: 'anonymous',
-        margin: hideBgDots ? 8 : 0, 
-        imageSize: 0.35,
-        hideBackgroundDots: hideBgDots 
-      }
+      imageOptions: { crossOrigin: 'anonymous', margin: hideBgDots ? 8 : 0, imageSize: 0.35, hideBackgroundDots: hideBgDots }
     });
   }, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots]);
 
-  // ฟังก์ชันสั่งงาน AI ให้เลือกชุดสี
   const handleAIThemeClick = async () => {
-    if (!aiPrompt) {
-      alert('กรุณากรอกสไตล์ที่ต้องการก่อนครับ เช่น "โทนสีมินิมอล อบอุ่น สำหรับร้านกาแฟ"');
-      return;
-    }
-
+    if (!aiPrompt) { alert('กรุณากรอกสไตล์ที่ต้องการก่อนครับ'); return; }
     setAiLoading(true);
     const theme = await generateQRThemeWithAI(aiPrompt);
     if (theme) {
@@ -163,26 +145,19 @@ export default function QrCodeGenerator() {
     const file = e.target.files[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (event) => {
-        setOriginalLogo(event.target.result);
-        setLogoShape('circle'); 
-      };
+      reader.onload = (event) => { setOriginalLogo(event.target.result); setLogoShape('circle'); };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleDownload = (format) => {
-    qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
-  };
+  const handleDownload = (format) => qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
 
   const [history, setHistory] = useState(() => {
     const saved = localStorage.getItem('qrHistory');
     return saved ? JSON.parse(saved) : [];
   });
 
-  useEffect(() => {
-    localStorage.setItem('qrHistory', JSON.stringify(history));
-  }, [history]);
+  useEffect(() => { localStorage.setItem('qrHistory', JSON.stringify(history)); }, [history]);
 
   const addToHistory = () => {
     const newItem = { id: Date.now(), type: qrType, data: qrValue, date: new Date().toLocaleString('th-TH') };
@@ -190,26 +165,70 @@ export default function QrCodeGenerator() {
     alert('บันทึกข้อมูลลงประวัติเรียบร้อยแล้ว!');
   };
 
-  const deleteHistory = (id) => {
-    if (window.confirm('ต้องการลบประวัตินี้ใช่หรือไม่?')) setHistory(history.filter(item => item.id !== id));
-  };
+  const deleteHistory = (id) => { if (window.confirm('ต้องการลบประวัตินี้ใช่หรือไม่?')) setHistory(history.filter(item => item.id !== id)); };
 
   // ==========================================
-  // ส่วนสแกน QR Code (เพิ่มระบบ Drag and Drop แล้ว!)
+  // ส่วนสแกน QR Code (อัปเกรดระบบเชื่อมต่อข้ามจอ)
   // ==========================================
   const [scanResult, setScanResult] = useState('');
   const [scanError, setScanError] = useState('');
-  const [isDragging, setIsDragging] = useState(false); // ✨ State ควบคุมการ Drag
+  const [isDragging, setIsDragging] = useState(false); 
   const videoRef = useRef(null);
   const scannerRef = useRef(null);
 
+  // เริ่มระบบดักฟังข้อมูลจาก Firebase สำหรับฝั่งคอมพิวเตอร์
+  const startDesktopSync = () => {
+    const newRoomId = Math.random().toString(36).substring(2, 8); // สุ่มรหัส 6 หลัก
+    const syncUrl = `${window.location.origin}${window.location.pathname}?room=${newRoomId}`;
+    
+    setSyncRoomId(newRoomId);
+    setDesktopSyncQr(syncUrl);
+    setScanResult('');
+
+    // วาด QR Code เชื่อมต่อให้มือถือสแกน
+    setTimeout(() => {
+      if (syncQrRef.current) {
+        syncQrRef.current.innerHTML = '';
+        new QRCodeStyling({
+          width: 200, height: 200, data: syncUrl, dotsOptions: { color: '#2563eb', type: 'rounded' }
+        }).append(syncQrRef.current);
+      }
+    }, 100);
+
+    // 🔴 ดักฟังฐานข้อมูลห้องนี้ตลอดเวลา
+    onSnapshot(doc(db, "qr_scans", newRoomId), (docSnapshot) => {
+      if (docSnapshot.exists() && docSnapshot.data().result) {
+        setScanResult(docSnapshot.data().result); // เอาข้อมูลที่ดึงมาโชว์บนหน้าจอคอม
+        setDesktopSyncQr(''); // ปิด QR Code เชื่อมต่อ
+      }
+    });
+  };
+
+  // ฟังก์ชันสแกนสำเร็จ
+  const handleScanSuccess = async (resultData) => {
+    setScanResult(resultData);
+    setScanError('');
+    if (scannerRef.current) scannerRef.current.stop();
+
+    // 🟢 ถ้าเป็นมือถือที่อยู่ในห้องเชื่อมต่อ ให้ส่งข้อมูลเข้า Firebase ด้วย
+    if (isMobileSender && syncRoomId) {
+      try {
+        await setDoc(doc(db, "qr_scans", syncRoomId), { result: resultData, timestamp: Date.now() });
+        alert('ส่งข้อมูลเข้าคอมพิวเตอร์สำเร็จ! ✅');
+      } catch (err) {
+        console.error("Firebase Error: ", err);
+      }
+    }
+  };
+
   useEffect(() => {
-    if (activeTab === 'scan' && !scanResult) {
+    // ถ้าหน้าสแกนเปิดอยู่, ไม่ได้โชว์ผลลัพธ์, และไม่ได้กำลังรอคนสแกนเข้าห้อง
+    if (activeTab === 'scan' && !scanResult && !desktopSyncQr) {
       const timer = setTimeout(() => {
         if (videoRef.current) {
           scannerRef.current = new QrScanner(
             videoRef.current,
-            (result) => { setScanResult(result.data); if (scannerRef.current) scannerRef.current.stop(); },
+            (result) => handleScanSuccess(result.data),
             { highlightScanRegion: true, highlightCodeOutline: true, returnDetailedScanResult: true }
           );
           scannerRef.current.start().catch((err) => console.warn('ไม่สามารถเข้าถึงกล้องได้:', err));
@@ -218,93 +237,80 @@ export default function QrCodeGenerator() {
       return () => clearTimeout(timer);
     }
     return () => { if (scannerRef.current) { scannerRef.current.stop(); scannerRef.current.destroy(); } };
-  }, [activeTab, scanResult]);
+  }, [activeTab, scanResult, desktopSyncQr]);
 
-  // ✨ ฟังก์ชันจัดการข้อมูลไฟล์รูปภาพ
   const processImageFile = async (file) => {
     if (!file) return;
-    
-    setScanError('กำลังวิเคราะห์รูปภาพอย่างละเอียด...');
+    setScanError('🔍 กำลังวิเคราะห์และปรับแต่งรูปภาพขั้นสูง...');
     
     const reader = new FileReader();
-
     reader.onload = (event) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        canvas.width = img.width; canvas.height = img.height;
         
-        canvas.width = img.width;
-        canvas.height = img.height;
         context.drawImage(img, 0, 0, canvas.width, canvas.height);
+        let imageData = context.getImageData(0, 0, canvas.width, canvas.height);
         
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        const code = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: "dontInvert", 
-        });
+        let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+
+        if (!code) {
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.filter = 'grayscale(100%) contrast(300%) brightness(110%)';
+          context.drawImage(img, 0, 0, canvas.width, canvas.height);
+          imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+        }
 
         if (code) {
-          setScanResult(code.data);
-          setScanError('');
+          handleScanSuccess(code.data); // เรียกใช้ฟังก์ชันจัดการข้อมูล
         } else {
-          setScanError('❌ สแกนไม่พบข้อมูล QR Code ภาพอาจเบลอเกินไป ลองใช้รูปอื่นดูนะครับ');
+          setScanError('❌ ภาพอาจเบลอเกินไป ลองครอป (Crop) ตัดขอบให้เห็นแค่คิวอาร์โค้ดแล้วลากมาวางใหม่นะครับ');
         }
       };
       img.src = event.target.result;
     };
-    
     reader.readAsDataURL(file);
   };
 
-  // ดึงฟังก์ชันมาครอบเพื่อใช้รับ Event จาก input file
-  const scanImageFile = (e) => {
-    processImageFile(e.target.files[0]);
-  };
-
-  // ✨ ฟังก์ชันจัดการ Event การลากไฟล์
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processImageFile(e.dataTransfer.files[0]);
-    }
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(scanResult);
-    alert('คัดลอกข้อความแล้ว!');
-  };
+  const scanImageFile = (e) => processImageFile(e.target.files[0]);
+  const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e) => { e.preventDefault(); setIsDragging(false); if (e.dataTransfer.files && e.dataTransfer.files.length > 0) processImageFile(e.dataTransfer.files[0]); };
+  const copyToClipboard = () => { navigator.clipboard.writeText(scanResult); alert('คัดลอกข้อความแล้ว!'); };
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center py-10 px-6 font-sans">
       <div className="max-w-5xl w-full mb-8 text-center">
         <h1 className="text-4xl font-bold text-white mb-6">QR Code Studio</h1>
-        <div className="inline-flex bg-slate-800 p-1 rounded-xl border border-slate-700">
-          <button onClick={() => setActiveTab('generate')} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all ${activeTab === 'generate' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-            สร้าง QR Code
-          </button>
-          <button onClick={() => { setActiveTab('scan'); setScanResult(''); setScanError(''); }} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all ${activeTab === 'scan' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
-            สแกน QR Code
-          </button>
-        </div>
+        
+        {/* ถ้าอยู่ในโหมดมือถือเป็นรีโมท จะซ่อนปุ่มเปลี่ยนแท็บ */}
+        {!isMobileSender && (
+          <div className="inline-flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+            <button onClick={() => setActiveTab('generate')} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all ${activeTab === 'generate' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+              สร้าง QR Code
+            </button>
+            <button onClick={() => { setActiveTab('scan'); setScanResult(''); setScanError(''); setDesktopSyncQr(''); }} className={`px-8 py-3 rounded-lg font-bold text-sm transition-all ${activeTab === 'scan' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+              สแกน QR Code
+            </button>
+          </div>
+        )}
+        {isMobileSender && (
+          <div className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg animate-pulse inline-block">
+            📱 โหมดสแกนเนอร์ส่งเข้าคอมพิวเตอร์
+          </div>
+        )}
       </div>
 
       <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-5xl w-full border border-slate-700 min-h-[500px]">
         
-        {activeTab === 'generate' && (
+        {/* ... (เนื้อหาส่วนแท็บ Generate ซ่อนไว้ในโค้ดเดิมด้านบน ไม่มีการเปลี่ยนแปลง) ... */}
+        {activeTab === 'generate' && !isMobileSender && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-            <div className="space-y-6">
+             {/* ... โค้ดส่วน UI ของแท็บ Generate เหมือนเดิมทุกประการ ... */}
+             <div className="space-y-6">
               
               <div className="flex flex-wrap gap-2 mb-4">
                 {[ { id: 'url', label: 'ลิงก์ / ข้อความ' }, { id: 'phone', label: 'เบอร์โทร' }, { id: 'wifi', label: 'WiFi' }, { id: 'vcard', label: 'นามบัตร' } ].map((type) => (
@@ -447,41 +453,40 @@ export default function QrCodeGenerator() {
           </div>
         )}
 
-        {/* แดชบอร์ดประวัติ และ หน้าสแกน QR Code */}
-        {activeTab === 'generate' && history.length > 0 && (
-          <div className="mt-12 pt-8 border-t border-slate-700">
-            <h3 className="text-xl font-bold text-white mb-6">📋 ประวัติการสร้าง</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-slate-300">
-                <thead className="bg-slate-700/50 text-slate-400">
-                  <tr><th className="px-4 py-3 w-24">ประเภท</th><th className="px-4 py-3">ข้อมูล</th><th className="px-4 py-3 w-48">วันที่</th><th className="px-4 py-3 w-24 text-center">ลบ</th></tr>
-                </thead>
-                <tbody>
-                  {history.map((item) => (
-                    <tr key={item.id} className="border-b border-slate-700/50 hover:bg-slate-750">
-                      <td className="px-4 py-4 text-blue-400 uppercase font-semibold">{item.type}</td>
-                      <td className="px-4 py-4 truncate max-w-xs">{item.data}</td>
-                      <td className="px-4 py-4">{item.date}</td>
-                      <td className="px-4 py-4 text-center"><button onClick={() => deleteHistory(item.id)} className="text-red-400 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-lg">ลบ</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ✨ ปรับปรุง UI ส่วนสแกนให้รองรับการลากไฟล์ */}
+        {/* UI ส่วนสแกนเนอร์ */}
         {activeTab === 'scan' && (
           <div className="flex flex-col items-center justify-center space-y-6">
-            {!scanResult ? (
+            
+            {/* โหมดแสดง QR Code ให้มือถือสแกนเข้าห้อง */}
+            {desktopSyncQr && !scanResult && (
+              <div className="flex flex-col items-center justify-center space-y-6 bg-slate-900 p-10 rounded-2xl border-2 border-blue-500 shadow-xl shadow-blue-900/20 w-full max-w-md text-center">
+                <h3 className="text-xl font-bold text-white">📱 สแกนเพื่อเชื่อมต่อมือถือ</h3>
+                <p className="text-slate-400 text-sm mb-4">หยิบโทรศัพท์ของคุณมาสแกน QR Code นี้<br/>เพื่อใช้กล้องมือถือสแกนบาร์โค้ดเข้าคอมพิวเตอร์</p>
+                <div className="p-4 bg-white rounded-xl shadow-lg">
+                  <div ref={syncQrRef}></div>
+                </div>
+                <div className="animate-pulse text-blue-400 font-semibold mt-4">⏳ กำลังรอรับข้อมูล...</div>
+                <button onClick={() => setDesktopSyncQr('')} className="mt-4 px-6 py-2 text-slate-400 hover:text-white transition-colors underline">
+                  ยกเลิก
+                </button>
+              </div>
+            )}
+
+            {/* โหมดสแกนปกติ หรือ โหมดมือถือ */}
+            {!scanResult && !desktopSyncQr && (
               <div className="w-full max-w-lg space-y-6">
+                {!isMobileSender && (
+                  <button onClick={startDesktopSync} className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-blue-900/50 transition-all flex items-center justify-center gap-2 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                    สแกนผ่านกล้องมือถือ (ไร้สาย)
+                  </button>
+                )}
+
                 <div className="bg-black rounded-xl overflow-hidden shadow-lg border-2 border-slate-600 relative h-[350px] w-full flex items-center justify-center">
                   <video ref={videoRef} className="w-full h-full object-cover" playsInline muted></video>
                   <div className="absolute inset-0 pointer-events-none flex items-center justify-center"><div className="w-56 h-56 border-2 border-blue-500 rounded-lg bg-black/10"></div></div>
                 </div>
                 
-                {/* ✨ พื้นที่ลากและวาง (Drag & Drop Zone) */}
                 <div 
                   className={`p-8 rounded-xl border-2 border-dashed transition-all text-center ${
                     isDragging ? 'border-blue-500 bg-blue-900/30 shadow-lg shadow-blue-500/20' : 'bg-slate-750 border-slate-600 hover:border-slate-500'
@@ -492,23 +497,17 @@ export default function QrCodeGenerator() {
                 >
                   <p className="text-slate-200 mb-2 font-bold text-lg">📸 ลากรูปภาพมาวางที่นี่เพื่อสแกน</p>
                   <p className="text-slate-400 mb-6 text-sm">หรือกดปุ่มด้านล่างเพื่อเลือกไฟล์</p>
-                  
                   <label className="cursor-pointer inline-block">
-                    <span className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors shadow-lg">
-                      เปิดเลือกไฟล์รูปภาพ
-                    </span>
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      onChange={scanImageFile} 
-                      className="hidden" 
-                    />
+                    <span className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg transition-colors shadow-lg">เปิดเลือกไฟล์รูปภาพ</span>
+                    <input type="file" accept="image/*" onChange={scanImageFile} className="hidden" />
                   </label>
-                  
                   {scanError && <div className="mt-6 p-3 bg-red-900/40 border border-red-500/50 rounded-lg text-red-400 text-sm font-medium">{scanError}</div>}
                 </div>
               </div>
-            ) : (
+            )}
+
+            {/* โหมดแสดงผลลัพธ์ */}
+            {scanResult && (
               <div className="w-full max-w-2xl bg-slate-900 border border-green-500 p-8 rounded-xl text-center space-y-6 shadow-xl shadow-green-900/20">
                 <h3 className="text-2xl font-bold text-white">✅ สแกนสำเร็จ!</h3>
                 <div className="bg-slate-800 p-4 rounded-lg break-all text-slate-300 font-mono text-lg text-left shadow-inner">{scanResult}</div>
@@ -518,12 +517,8 @@ export default function QrCodeGenerator() {
                       🌐 เปิดลิงก์ทันที
                     </button>
                   )}
-                  <button onClick={copyToClipboard} className="px-6 py-3 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-600 transition-colors">
-                    คัดลอกข้อความ
-                  </button>
-                  <button onClick={() => { setScanResult(''); setScanError(''); }} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">
-                    สแกนรูปอื่น
-                  </button>
+                  <button onClick={copyToClipboard} className="px-6 py-3 bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-600 transition-colors">คัดลอกข้อความ</button>
+                  <button onClick={() => { setScanResult(''); setScanError(''); }} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">สแกนรูปอื่น</button>
                 </div>
               </div>
             )}
