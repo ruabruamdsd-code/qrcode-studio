@@ -37,7 +37,8 @@ export default function QrCodeGenerator() {
   const [dotType, setDotType] = useState('rounded');
   const [cornerType, setCornerType] = useState('extra-rounded');
   const [cornerDotType, setCornerDotType] = useState('dot');
-  
+  const [isRainbow, setIsRainbow] = useState(false);
+
   const [originalLogo, setOriginalLogo] = useState(null);
   const [logo, setLogo] = useState(null);
   const [logoShape, setLogoShape] = useState('square');
@@ -120,15 +121,31 @@ export default function QrCodeGenerator() {
   useEffect(() => {
     qrCodeInstance.update({
       data: qrValue,
-      dotsOptions: { color: fgColor, type: dotType },
+      dotsOptions: isRainbow ? {
+        type: dotType,
+        gradient: {
+          type: 'linear',
+          rotation: 45,
+          colorStops: [
+            { offset: 0, color: '#ff0000' },
+            { offset: 0.2, color: '#ff7f00' },
+            { offset: 0.4, color: '#ffff00' },
+            { offset: 0.6, color: '#00ff00' },
+            { offset: 0.8, color: '#0000ff' },
+            { offset: 1, color: '#8b00ff' }
+          ]
+        }
+      }:{
+        color: fgColor,
+        type: dotType
+      },
       backgroundOptions: { color: bgColor },
       cornersSquareOptions: { type: cornerType, color: fgColor },
       cornersDotOptions: { type: cornerDotType, color: fgColor },
       image: logo,
       imageOptions: { crossOrigin: 'anonymous', margin: hideBgDots ? 8 : 0, imageSize: 0.35, hideBackgroundDots: hideBgDots }
     });
-  }, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots]);
-
+}, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots, isRainbow]);
   const handleAIThemeClick = async () => {
     if (!aiPrompt) { alert('กรุณากรอกสไตล์ที่ต้องการก่อนครับ'); return; }
     setAiLoading(true);
@@ -303,7 +320,20 @@ export default function QrCodeGenerator() {
           </div>
         )}
       </div>
-
+        {activeTab === 'generate' && (
+          <div className="max-w-md mx-auto w-full mb-6">
+            <button
+              onClick={() => setIsRainbow(!isRainbow)}
+              className={`w-full py-3 px-4 rounded-xl font-bold text-white transition-all shadow-lg ${
+                isRainbow 
+                  ? 'bg-gradient-to-r from-red-500 via-yellow-500 to-purple-500 hover:opacity-90' 
+                  : 'bg-slate-700 hover:bg-slate-600'
+              }`}
+            >
+              {isRainbow ? '🌈 ปิดโหมดสีรุ้ง (กลับไปใช้สีปกติ)' : '✨ เปิดโหมดสีรุ้งสุดเท่!'}
+            </button>
+          </div>
+        )}
       <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-5xl w-full border border-slate-700 min-h-[500px]">
         
         {/* ... (เนื้อหาส่วนแท็บ Generate ซ่อนไว้ในโค้ดเดิมด้านบน ไม่มีการเปลี่ยนแปลง) ... */}
