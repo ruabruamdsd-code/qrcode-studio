@@ -38,7 +38,8 @@ export default function QrCodeGenerator() {
   const [cornerType, setCornerType] = useState('extra-rounded');
   const [cornerDotType, setCornerDotType] = useState('dot');
   const [isRainbow, setIsRainbow] = useState(false);
-
+  const [qrSize, setQrSize] = useState(1024); // ✨ เพิ่ม state จัดการขนาดความละเอียด
+  
   const [originalLogo, setOriginalLogo] = useState(null);
   const [logo, setLogo] = useState(null);
   const [logoShape, setLogoShape] = useState('square');
@@ -120,6 +121,8 @@ export default function QrCodeGenerator() {
 
   useEffect(() => {
     qrCodeInstance.update({
+      width: qrSize,   // ✨ เพิ่มการตั้งค่าความกว้างตามแถบเลื่อน
+      height: qrSize,  // ✨ เพิ่มการตั้งค่าความสูงตามแถบเลื่อน
       data: qrValue,
       dotsOptions: isRainbow ? {
         type: dotType,
@@ -145,7 +148,7 @@ export default function QrCodeGenerator() {
       image: logo,
       imageOptions: { crossOrigin: 'anonymous', margin: hideBgDots ? 8 : 0, imageSize: 0.35, hideBackgroundDots: hideBgDots }
     });
-}, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots, isRainbow]);
+}, [qrValue, fgColor, bgColor, dotType, cornerType, cornerDotType, logo, hideBgDots, isRainbow, qrSize]); // ✨ เพิ่ม qrSize เข้ามาในอาเรย์นี้
   const handleAIThemeClick = async () => {
     if (!aiPrompt) { alert('กรุณากรอกสไตล์ที่ต้องการก่อนครับ'); return; }
     setAiLoading(true);
@@ -322,6 +325,29 @@ export default function QrCodeGenerator() {
       </div>
         {activeTab === 'generate' && (
           <div className="max-w-md mx-auto w-full mb-6">
+            
+            {/* ✨ เพิ่มแถบเลื่อนปรับขนาด QR Code ตรงนี้ */}
+            <div className="mb-4 bg-slate-800 p-4 rounded-xl border border-slate-700 w-full text-left shadow-lg">
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-sm font-medium text-slate-300">ความละเอียดไฟล์ (Resolution)</label>
+                <span className="text-xs font-bold text-blue-400 bg-blue-900/30 px-2 py-1 rounded-md border border-blue-800">
+                  {qrSize} x {qrSize} px
+                </span>
+              </div>
+              <input
+                type="range"
+                min="300"
+                max="2048"
+                step="64"
+                value={qrSize}
+                onChange={(e) => setQrSize(Number(e.target.value))}
+                className="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-blue-500"
+              />
+              <p className="text-[10px] text-slate-400 mt-2">
+                *เลื่อนขวาเพื่อเพิ่มความคมชัดก่อนกดโหลดไฟล์ PNG
+              </p>
+            </div>
+
             <button
               onClick={() => setIsRainbow(!isRainbow)}
               className={`w-full py-3 px-4 rounded-xl font-bold text-white transition-all shadow-lg ${
@@ -470,9 +496,10 @@ export default function QrCodeGenerator() {
               </div>
             </div>
 
-            <div className="flex flex-col items-center justify-center bg-slate-900 rounded-xl p-8 border border-slate-700">
+            <div className="flex flex-col items-center justify-center bg-slate-900 rounded-xl p-8 border border-slate-700 overflow-hidden">
               <div className="p-4 rounded-xl shadow-lg mb-8" style={{ backgroundColor: bgColor }}>
-                <div ref={qrRef} className="flex items-center justify-center"></div>
+                {/* ✨ เพิ่มคลาส [&>canvas]:!max-w-full และ [&>canvas]:!h-auto ตรงนี้เพื่อไม่ให้ภาพทะลุจอ */}
+                <div ref={qrRef} className="flex items-center justify-center [&>canvas]:!max-w-full [&>canvas]:!h-auto"></div>
               </div>
               <div className="grid grid-cols-2 gap-3 w-full mb-3">
                 <button onClick={() => handleDownload('png')} className="py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-500 transition-colors">🖼️ โหลด PNG</button>
