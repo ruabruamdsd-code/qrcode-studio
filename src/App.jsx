@@ -170,7 +170,25 @@ export default function QrCodeGenerator() {
     }
   };
 
-  const handleDownload = (format) => qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
+  // ✨ อัปเกรดฟังก์ชันสำหรับ iPad และอุปกรณ์มือถือ
+  const handleDownload = async (format) => {
+    try {
+      const blob = await qrCodeInstance.getRawData(format);
+      const file = new File([blob], `qrcode-${qrType}.${format}`, { type: `image/${format}` });
+      
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'QR Code',
+        });
+      } else {
+        qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
+      }
+    } catch (error) {
+      console.warn("ไม่สามารถใช้เมนูแชร์ได้ จะสลับไปโหลดแบบปกติ:", error);
+      qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
+    }
+  };
 
   const [history, setHistory] = useState(() => {
     const saved = localStorage.getItem('qrHistory');
