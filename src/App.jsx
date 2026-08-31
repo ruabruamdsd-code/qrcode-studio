@@ -170,22 +170,32 @@ export default function QrCodeGenerator() {
     }
   };
 
-  // ✨ อัปเกรดฟังก์ชันสำหรับ iPad และอุปกรณ์มือถือ
+  // ✨ อัปเกรดฟังก์ชันโหลดรูป แยกการทำงานระหว่าง PC และ มือถือ/iPad อย่างเด็ดขาด
   const handleDownload = async (format) => {
     try {
-      const blob = await qrCodeInstance.getRawData(format);
-      const file = new File([blob], `qrcode-${qrType}.${format}`, { type: `image/${format}` });
-      
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: 'QR Code',
-        });
-      } else {
-        qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
+      // 1. ตรวจสอบว่าเป็นอุปกรณ์พกพาหรือ iPad รุ่นใหม่หรือไม่
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+      if (isMobile) {
+        // 2. ถ้าเป็น iPad/มือถือ ให้เตรียมไฟล์สำหรับเมนูแชร์
+        const blob = await qrCodeInstance.getRawData(format);
+        const file = new File([blob], `qrcode-${qrType}.${format}`, { type: `image/${format}` });
+        
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'QR Code',
+          });
+          return; // จบการทำงานสำหรับมือถือ
+        }
       }
+      
+      // 3. ถ้าเป็น PC ให้ดาวน์โหลดไฟล์ลงเครื่องตรงๆ ทันที
+      qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
+      
     } catch (error) {
-      console.warn("ไม่สามารถใช้เมนูแชร์ได้ จะสลับไปโหลดแบบปกติ:", error);
+      console.warn("เกิดข้อผิดพลาด จะสลับไปใช้การโหลดแบบปกติ:", error);
       qrCodeInstance.download({ name: `qrcode-${qrType}`, extension: format });
     }
   };
